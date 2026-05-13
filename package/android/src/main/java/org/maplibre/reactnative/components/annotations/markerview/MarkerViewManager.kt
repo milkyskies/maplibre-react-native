@@ -27,11 +27,10 @@ class MarkerViewManager(
     private val markers = mutableListOf<MarkerInfo>()
     private var isDestroyed = false
 
-    // UI-thread frame loop. We drive marker positioning from Choreographer instead of from maplibre's GL-thread onWillStartRenderingFrame callback. The hypothesis: HWUI composites on UI-thread vsync, so writing translationX/Y here lands the update in the same frame HWUI presents — versus the GL-thread path, where the property invalidate could miss the current frame and reappear one vsync later.
+    // Marker positioning runs from a UI-thread Choreographer frame so the translation lands in the HWUI composite that pairs with the GL surface's frame; running it on the GL thread queues the View-property invalidate one vsync late, which is the visible lag.
     private val choreographer: Choreographer? =
         if (Looper.myLooper() == Looper.getMainLooper()) Choreographer.getInstance() else null
 
-    // Read/written from both the GL render thread (updateMarkers → scheduleFrame) and the UI thread (Choreographer callback). @Volatile guarantees the flag-flip happens-before subsequent reads on the other thread; no atomic ops needed because the worst case of a stale read is one extra postFrameCallback, which Choreographer dedupes via the no-op when nothing has changed.
     @Volatile private var frameCallbackScheduled = false
     private val frameCallback =
         object : Choreographer.FrameCallback {
@@ -72,14 +71,13 @@ class MarkerViewManager(
 
     fun onCameraMoveEnded() {
         cameraIsMoving = false
-        // One last tick so the resting position is committed even if the camera-idle event arrived after the last vsync we serviced.
+        // Commit the resting position in case the idle event landed after the last vsync we serviced.
         scheduleFrame()
     }
 
     companion object {
         private const val TAG = "MLRN.MarkerLag"
 
-        // Toggle when measuring; flip off before shipping. Keeps the production path clean.
         private const val DEBUG_LAG_LOGS = false
     }
 
@@ -119,7 +117,6 @@ class MarkerViewManager(
     fun updateMarkers() {
         if (isDestroyed) return
 
-        // Defer to the next UI-thread vsync via Choreographer so the marker translation lands in the HWUI frame that's about to compose. Calling setX/setY synchronously here (especially from the GL render thread) can mean HWUI doesn't pick up the new value until one vsync later — that's the lag.
         scheduleFrame()
     }
 
