@@ -32,6 +32,10 @@ class MarkerViewManager(
         if (Looper.myLooper() == Looper.getMainLooper()) Choreographer.getInstance() else null
 
     @Volatile private var frameCallbackScheduled = false
+
+    // Last child-list order applied via bringToFront. Used to skip the reorder pass when projected screen-Y ranking hasn't changed; bringToFront is a no-op when a view is already last, but the comparison work itself is wasted otherwise.
+    private var lastTouchOrder: List<MarkerInfo> = emptyList()
+
     private val frameCallback =
         object : Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
@@ -42,6 +46,8 @@ class MarkerViewManager(
                 val started = System.nanoTime()
 
                 for (marker in markers) updateMarkerPosition(marker)
+
+                reorderForTouchPriority()
 
                 if (DEBUG_LAG_LOGS) {
                     val elapsedNs = System.nanoTime() - started
@@ -54,6 +60,27 @@ class MarkerViewManager(
                 if (cameraIsMoving) scheduleFrame()
             }
         }
+
+    // Sort markers by screen-Y (larger Y = lower on screen = closer to the viewer when the map is pitched), then bringToFront() each in ascending order. The marker with the largest Y ends up at the end of mapView's child list, which makes it:
+    //
+    //   - drawn on top (default FrameLayout draw order = index order), and
+    //   - the first child tested by dispatchTouchEvent (ViewGroup iterates `childCount - 1` down to 0).
+    //
+    // Without this, mapView's child order is whatever order markers were first registered in, so `onPress` can fire on a marker that's visually behind another. Sorting in the Choreographer frame keeps touch priority synced to the visual stack as the camera rotates / pans.
+    private fun reorderForTouchPriority() {
+        if (markers.size < 2) {
+            lastTouchOrder = markers.toList()
+            return
+        }
+
+        val sorted = markers.sortedBy { it.view.y }
+
+        if (sorted == lastTouchOrder) return
+
+        for (marker in sorted) marker.view.bringToFront()
+
+        lastTouchOrder = sorted
+    }
 
     @Volatile private var cameraIsMoving = false
 
@@ -101,12 +128,16 @@ class MarkerViewManager(
 
         updateMarkerPosition(markerInfo)
 
+        // Refresh touch priority on the next vsync; without this a marker added while the camera is idle keeps the registration-order touch priority instead of its screen-Y rank.
+        scheduleFrame()
+
         return markerInfo
     }
 
     fun removeMarker(markerInfo: MarkerInfo) {
         markers.remove(markerInfo)
         mapView.removeView(markerInfo.view)
+        scheduleFrame()
     }
 
     fun removeMarkerByView(view: View) {
