@@ -71,7 +71,6 @@ class MarkerViewManager(
 
     fun onCameraMoveEnded() {
         cameraIsMoving = false
-        // Commit the resting position in case the idle event landed after the last vsync we serviced.
         scheduleFrame()
     }
 
