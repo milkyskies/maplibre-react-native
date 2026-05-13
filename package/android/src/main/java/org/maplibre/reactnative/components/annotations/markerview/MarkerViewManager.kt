@@ -2,6 +2,9 @@ package org.maplibre.reactnative.components.annotations.markerview
 
 import android.graphics.PointF
 import android.graphics.RectF
+import android.os.Looper
+import android.util.Log
+import android.view.Choreographer
 import android.view.View
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -23,6 +26,62 @@ class MarkerViewManager(
 
     private val markers = mutableListOf<MarkerInfo>()
     private var isDestroyed = false
+
+    // UI-thread frame loop. We drive marker positioning from Choreographer instead of from maplibre's GL-thread onWillStartRenderingFrame callback. The hypothesis: HWUI composites on UI-thread vsync, so writing translationX/Y here lands the update in the same frame HWUI presents — versus the GL-thread path, where the property invalidate could miss the current frame and reappear one vsync later.
+    private val choreographer: Choreographer? =
+        if (Looper.myLooper() == Looper.getMainLooper()) Choreographer.getInstance() else null
+
+    // Read/written from both the GL render thread (updateMarkers → scheduleFrame) and the UI thread (Choreographer callback). @Volatile guarantees the flag-flip happens-before subsequent reads on the other thread; no atomic ops needed because the worst case of a stale read is one extra postFrameCallback, which Choreographer dedupes via the no-op when nothing has changed.
+    @Volatile private var frameCallbackScheduled = false
+    private val frameCallback =
+        object : Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                frameCallbackScheduled = false
+
+                if (isDestroyed) return
+
+                val started = System.nanoTime()
+
+                for (marker in markers) updateMarkerPosition(marker)
+
+                if (DEBUG_LAG_LOGS) {
+                    val elapsedNs = System.nanoTime() - started
+                    Log.d(
+                        TAG,
+                        "frame=$frameTimeNanos markers=${markers.size} elapsedMs=${"%.2f".format(elapsedNs / 1_000_000.0)}",
+                    )
+                }
+
+                if (cameraIsMoving) scheduleFrame()
+            }
+        }
+
+    @Volatile private var cameraIsMoving = false
+
+    private fun scheduleFrame() {
+        if (frameCallbackScheduled || isDestroyed || choreographer == null) return
+
+        frameCallbackScheduled = true
+        choreographer.postFrameCallback(frameCallback)
+    }
+
+    fun onCameraMoveStarted() {
+        cameraIsMoving = true
+        scheduleFrame()
+    }
+
+    fun onCameraMoveEnded() {
+        cameraIsMoving = false
+        // One last tick so the resting position is committed even if the camera-idle event arrived after the last vsync we serviced.
+        scheduleFrame()
+    }
+
+    companion object {
+        private const val TAG = "MLRN.MarkerLag"
+
+        // Toggle when measuring; flip off before shipping. Keeps the production path clean.
+        private const val DEBUG_LAG_LOGS = false
+    }
 
     fun addMarker(
         view: MLRNMarkerViewContent,
@@ -60,9 +119,8 @@ class MarkerViewManager(
     fun updateMarkers() {
         if (isDestroyed) return
 
-        for (marker in markers) {
-            updateMarkerPosition(marker)
-        }
+        // Defer to the next UI-thread vsync via Choreographer so the marker translation lands in the HWUI frame that's about to compose. Calling setX/setY synchronously here (especially from the GL render thread) can mean HWUI doesn't pick up the new value until one vsync later — that's the lag.
+        scheduleFrame()
     }
 
     private fun updateMarkerPosition(marker: MarkerInfo) {
@@ -135,6 +193,7 @@ class MarkerViewManager(
 
     fun onDestroy() {
         isDestroyed = true
+        choreographer?.removeFrameCallback(frameCallback)
         for (marker in markers) {
             mapView.removeView(marker.view)
         }
