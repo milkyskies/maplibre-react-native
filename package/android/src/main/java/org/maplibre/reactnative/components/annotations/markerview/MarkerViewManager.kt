@@ -164,8 +164,12 @@ class MarkerViewManager(
 
     fun isPointInsideMarker(screenPoint: PointF): Boolean = findMarkerAtPoint(screenPoint) != null
 
+    // Iterate by the marker's anchor screen-Y, closest-to-viewer first (largest Y at bearing=0). view.y is the top of the bounding box, which conflates marker height with proximity for variable-height markers; the anchor point (latLng projected) is what actually determines proximity. Touches don't go through Android's normal dispatch chain — MLRNMapView intercepts and calls this directly, so bringToFront / translationZ / style.zIndex on the View have no effect on which marker is returned here.
     fun findMarkerAtPoint(screenPoint: PointF): MarkerInfo? {
-        for (marker in markers) {
+        val candidates =
+            markers.sortedByDescending { map.projection.toScreenLocation(it.latLng).y }
+
+        for (marker in candidates) {
             val v = marker.view
             if (v.visibility != View.VISIBLE) continue
             val (w, h) = v.getContentSize()
