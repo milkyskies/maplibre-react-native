@@ -2,6 +2,9 @@ package org.maplibre.reactnative.components.annotations.markerview
 
 import android.graphics.PointF
 import android.graphics.RectF
+import android.os.Looper
+import android.util.Log
+import android.view.Choreographer
 import android.view.View
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -23,6 +26,59 @@ class MarkerViewManager(
 
     private val markers = mutableListOf<MarkerInfo>()
     private var isDestroyed = false
+
+    // Marker positioning runs from a UI-thread Choreographer frame so the translation lands in the HWUI composite that pairs with the GL surface's frame; running it on the GL thread queues the View-property invalidate one vsync late, which is the visible lag.
+    private val choreographer: Choreographer? =
+        if (Looper.myLooper() == Looper.getMainLooper()) Choreographer.getInstance() else null
+
+    @Volatile private var frameCallbackScheduled = false
+    private val frameCallback =
+        object : Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                frameCallbackScheduled = false
+
+                if (isDestroyed) return
+
+                val started = System.nanoTime()
+
+                for (marker in markers) updateMarkerPosition(marker)
+
+                if (DEBUG_LAG_LOGS) {
+                    val elapsedNs = System.nanoTime() - started
+                    Log.d(
+                        TAG,
+                        "frame=$frameTimeNanos markers=${markers.size} elapsedMs=${"%.2f".format(elapsedNs / 1_000_000.0)}",
+                    )
+                }
+
+                if (cameraIsMoving) scheduleFrame()
+            }
+        }
+
+    @Volatile private var cameraIsMoving = false
+
+    private fun scheduleFrame() {
+        if (frameCallbackScheduled || isDestroyed || choreographer == null) return
+
+        frameCallbackScheduled = true
+        choreographer.postFrameCallback(frameCallback)
+    }
+
+    fun onCameraMoveStarted() {
+        cameraIsMoving = true
+        scheduleFrame()
+    }
+
+    fun onCameraMoveEnded() {
+        cameraIsMoving = false
+        scheduleFrame()
+    }
+
+    companion object {
+        private const val TAG = "MLRN.MarkerLag"
+
+        private const val DEBUG_LAG_LOGS = false
+    }
 
     fun addMarker(
         view: MLRNMarkerViewContent,
@@ -60,9 +116,7 @@ class MarkerViewManager(
     fun updateMarkers() {
         if (isDestroyed) return
 
-        for (marker in markers) {
-            updateMarkerPosition(marker)
-        }
+        scheduleFrame()
     }
 
     private fun updateMarkerPosition(marker: MarkerInfo) {
@@ -135,6 +189,7 @@ class MarkerViewManager(
 
     fun onDestroy() {
         isDestroyed = true
+        choreographer?.removeFrameCallback(frameCallback)
         for (marker in markers) {
             mapView.removeView(marker.view)
         }

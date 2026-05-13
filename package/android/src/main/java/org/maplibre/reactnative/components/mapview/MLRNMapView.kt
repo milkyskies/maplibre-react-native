@@ -476,6 +476,7 @@ open class MLRNMapView(
 
         mapLibreMap.addOnCameraMoveStartedListener { reason ->
             cameraChangeTracker.setReason(reason)
+            markerViewManager?.onCameraMoveStarted()
             handleMapChangedEvent("onRegionWillChange", true)
         }
 
@@ -499,7 +500,10 @@ open class MLRNMapView(
             },
         )
 
-        mapLibreMap.addOnCameraIdleListener { sendRegionDidChangeEvent() }
+        mapLibreMap.addOnCameraIdleListener {
+            markerViewManager?.onCameraMoveEnded()
+            sendRegionDidChangeEvent()
+        }
     }
 
     fun reflow() {
