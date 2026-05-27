@@ -62,7 +62,13 @@ open class ReactTagResolver(
                 val resolvedView: View? = manager.resolveView(reactTag)
                 val view = resolvedView as? V
                 if (view != null) {
-                    fn(view)
+                    // Catch anything the callback throws (e.g. operations on a torn-down native map) and convert to a promise rejection instead of letting it propagate as an uncaught exception on the UI thread, which would crash the app via "Exception in native call from JS".
+                    try {
+                        fn(view)
+                    } catch (err: Throwable) {
+                        Logger.e(LOG_TAG, "withViewResolved callback threw: ${err.message}")
+                        promise?.reject(err)
+                    }
                 } else {
                     val message =
                         "`reactTag` $reactTag resolved to `view` $resolvedView which is null or a wrong type"

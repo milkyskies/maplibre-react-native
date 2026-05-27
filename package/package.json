@@ -1,7 +1,7 @@
 {
   "name": "@milkyskies/maplibre-react-native",
-  "description": "Fork of @maplibre/maplibre-react-native with Android marker pan-lag fix (Choreographer-driven positioning) and overlap-touch hit-test fix (rank by anchor screen-Y).",
-  "version": "11.2.1-milkyskies.0",
+  "description": "Fork of @maplibre/maplibre-react-native with Android fixes: marker pan-lag (Choreographer-driven positioning), overlap-touch hit-test (rank by anchor screen-Y), and post-destroy lifecycle safety (markerViewManager cleanup + project/unproject null-checks).",
+  "version": "11.2.1-milkyskies.1",
   "publishConfig": {
     "access": "public"
   },

@@ -201,6 +201,10 @@ open class MLRNMapView(
     }
 
     override fun onDestroy() {
+        // Tear down MarkerViewManager before MapView's native map is freed by super.onDestroy() — otherwise its per-frame Choreographer callback keeps calling pixelForLatLng on a destroyed native map and eventually SIGSEGVs.
+        markerViewManager?.onDestroy()
+        markerViewManager = null
+
         super.onDestroy()
         destroyed = true
     }
@@ -1067,7 +1071,11 @@ open class MLRNMapView(
     }
 
     fun project(mapCoordinate: LatLng): WritableArray {
-        val pointInView = mapLibreMap!!.projection.toScreenLocation(mapCoordinate)
+        val map = mapLibreMap
+        if (destroyed || map == null) {
+            throw IllegalStateException("Cannot project on a destroyed MLRNMapView")
+        }
+        val pointInView = map.projection.toScreenLocation(mapCoordinate)
         pointInView.x /= displayDensity
         pointInView.y /= displayDensity
         val payload: WritableArray = Arguments.createArray()
@@ -1079,10 +1087,14 @@ open class MLRNMapView(
     }
 
     fun unproject(pointInView: PointF): WritableArray {
+        val map = mapLibreMap
+        if (destroyed || map == null) {
+            throw IllegalStateException("Cannot unproject on a destroyed MLRNMapView")
+        }
         pointInView.x *= displayDensity
         pointInView.y *= displayDensity
 
-        val latLng = mapLibreMap!!.projection.fromScreenLocation(pointInView)
+        val latLng = map.projection.fromScreenLocation(pointInView)
 
         return GeoJSONUtils.fromLatLng(latLng)
     }
