@@ -1,10 +1,9 @@
 {
-  "name": "@maplibre/maplibre-react-native",
-  "description": "React Native library for creating maps with MapLibre Native for Android & iOS",
-  "version": "11.2.1",
+  "name": "@milkyskies/maplibre-react-native",
+  "description": "Fork of @maplibre/maplibre-react-native with Android marker pan-lag fix (Choreographer-driven positioning) and overlap-touch hit-test fix (rank by anchor screen-Y).",
+  "version": "11.2.1-milkyskies.0",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "author": "MapLibre",
   "keywords": [
@@ -16,13 +15,13 @@
     "mapbox"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/maplibre/maplibre-react-native#readme",
+  "homepage": "https://github.com/milkyskies/maplibre-react-native#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maplibre/maplibre-react-native.git"
+    "url": "git+https://github.com/milkyskies/maplibre-react-native.git"
   },
   "bugs": {
-    "url": "https://github.com/maplibre/maplibre-react-native/issues"
+    "url": "https://github.com/milkyskies/maplibre-react-native/issues"
   },
   "scripts": {
     "format:clang-format": "find ios -type f \\( -name \"*.h\" -o -name \"*.m\" -o -name \"*.mm\" \\) -exec clang-format -i {} +",
